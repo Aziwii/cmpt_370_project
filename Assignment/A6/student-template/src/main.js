@@ -69,11 +69,14 @@ async function main() {
         out vec3 oFragPosition;
         out vec3 oCameraPosition;
         out vec2 oUV;
+        out vec3 oTangent;
 
         void main() {
             // Simply use this normal so no error is thrown
             oNormal = vec3(normalMatrix * vec4(aNormal, 0.0));
             oFragPosition = (uModelMatrix * vec4(aPosition, 1.0)).xyz;
+            vec3 tangent = abs(aNormal.x) > 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+            oTangent = normalize(vec3(uModelMatrix * vec4(tangent, 0.0)).xyz);
 
             // Postion of the fragment in world space
             gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition, 1.0);
@@ -100,19 +103,32 @@ async function main() {
         in vec3 oNormal;
         in vec3 oFragPosition;
         in vec2 oUV;
-
+        in vec3 oTangent;
         //add additional uniforms
         uniform vec3 ambientVal;
         uniform vec3 specularVal;
         uniform float nVal;
+        uniform float uAlpha;
         in vec3 oCameraPosition;
 
         uniform int samplerExists;
         uniform sampler2D uTexture;
+        uniform int samplerNormExists;
+        uniform sampler2D normalSampler;
 
         out vec4 fragColor;
         void main() {
             vec3 normal = normalize(oNormal);
+
+            if (samplerNormExists == 1) {
+                vec3 normVector = texture(normalSampler, oUV).xyz;
+                normVector = normVector * 2.0 - 1.0;
+
+                vec3 tangent = normalize(oTangent);
+                vec3 bitangent = cross(normal, tangent);
+                mat3 TBN = mat3(tangent, bitangent, normal);
+                normal = normalize(TBN * normVector);
+            }
 
             // calculate ambient
             vec3 ambient = ambientVal * mainLight.colour * mainLight.strength;
@@ -136,7 +152,7 @@ async function main() {
             float powNdotH = pow(max(dot(normal,H), 0.0), nVal);
             vec3 specular = specularVal * mainLight.colour * powNdotH;
 
-            fragColor = vec4(ambient + diffuse + specular, 1.0);
+            fragColor = vec4(ambient + diffuse + specular, uAlpha);
         }
         `;
 
@@ -239,10 +255,19 @@ function drawScene(gl, deltaTime, state) {
   gl.cullFace(gl.BACK);
   // gl.frontFace(gl.CCW);
   gl.clearDepth(1.0); // Clear everything
+  gl.depthMask(true);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   // sort objects by nearness to camera
   let sorted = state.objects.sort((a, b) => {
+
+    const aTrans = a.material.alpha < 1.0;
+    const bTrans = b.material.alpha < 1.0;
+
+    if (aTrans !== bTrans) {
+      return aTrans ? 1 : -1;
+    }
+
     let aCentroidFour = vec4.fromValues(a.centroid[0], a.centroid[1], a.centroid[2], 1.0);
     vec4.transformMat4(aCentroidFour, aCentroidFour, a.modelMatrix);
 
@@ -294,7 +319,7 @@ function drawScene(gl, deltaTime, state) {
 
       if (object.parent) {
         let parent = getObject(state, object.parent);
-        if (parent.model && parent.model.modelMatrix) {
+        if (parent && parent.model) {
           let pWithoutScale = mat4.create();
 
           mat4.translate(pWithoutScale, pWithoutScale, parent.model.position);
@@ -309,6 +334,7 @@ function drawScene(gl, deltaTime, state) {
       }
 
       object.model.modelMatrix = modelMatrix;
+      object.modelMatrix = modelMatrix;
       gl.uniformMatrix4fv(object.programInfo.uniformLocations.model, false, modelMatrix);
 
       // Normal Matrix ....
@@ -322,6 +348,7 @@ function drawScene(gl, deltaTime, state) {
       gl.uniform3fv(object.programInfo.uniformLocations.ambientVal, object.material.ambient);
       gl.uniform3fv(object.programInfo.uniformLocations.specularVal, object.material.specular);
       gl.uniform1f(object.programInfo.uniformLocations.nVal, object.material.n);
+      gl.uniform1f(gl.getUniformLocation(object.programInfo.program, 'uAlpha'), object.material.alpha);
 
       let mainLight = state.pointLights[0];
       gl.uniform3fv(gl.getUniformLocation(object.programInfo.program, 'mainLight.position'), mainLight.position);
@@ -348,26 +375,35 @@ function drawScene(gl, deltaTime, state) {
         if (object.material.shaderType === 2) {
           state.samplerExists = 1;
           gl.activeTexture(gl.TEXTURE0);
-          gl.uniform1i(object.programInfo.uniformLocations.samplerExists, state.samplerExists);
-          gl.uniform1i(object.programInfo.uniformLocations.sampler, 0);
+          gl.uniform1i(gl.getUniformLocation(object.programInfo.program, 'samplerExists'), state.samplerExists);
+          gl.uniform1i(gl.getUniformLocation(object.programInfo.program, 'uTexture'), 0);
           gl.bindTexture(gl.TEXTURE_2D, object.model.texture);
         } else {
           gl.activeTexture(gl.TEXTURE0);
           state.samplerExists = 0;
-          gl.uniform1i(object.programInfo.uniformLocations.samplerExists, state.samplerExists);
+          gl.uniform1i(gl.getUniformLocation(object.programInfo.program, 'samplerExists'), state.samplerExists);
         }
 
         //check for normal texture and apply it
-        if (object.model.textureNorm != null) {
+        if (object.material.shaderType === 3) {
           state.samplerNormExists = 1;
           gl.activeTexture(gl.TEXTURE1);
-          gl.uniform1i(object.programInfo.uniformLocations.normalSamplerExists, state.samplerNormExists);
-          gl.uniform1i(object.programInfo.uniformLocations.normalSampler, 1);
+          gl.uniform1i(gl.getUniformLocation(object.programInfo.program, 'samplerNormExists'), state.samplerNormExists);
+          gl.uniform1i(gl.getUniformLocation(object.programInfo.program, 'normalSampler'), 1);
           gl.bindTexture(gl.TEXTURE_2D, object.model.textureNorm);
         } else {
           gl.activeTexture(gl.TEXTURE1);
           state.samplerNormExists = 0;
-          gl.uniform1i(object.programInfo.uniformLocations.normalSamplerExists, state.samplerNormExists);
+          gl.uniform1i(gl.getUniformLocation(object.programInfo.program, 'samplerNormExists'), state.samplerNormExists);
+        }
+
+        if (object.material.alpha < 1.0) {
+          gl.depthMask(false);
+          gl.enable(gl.BLEND);
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        } else {
+          gl.depthMask(true);
+          gl.disable(gl.BLEND);
         }
 
         // Draw the object

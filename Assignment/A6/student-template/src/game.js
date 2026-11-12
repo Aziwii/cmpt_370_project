@@ -42,6 +42,7 @@ class Game {
   // runs once on startup after the scene loads the objects
   async onStart() {
     // console.log("On start");
+    this.arm = getObject(this.state, "arm");
 
     // // this just prevents the context menu from popping up when you right click
     // document.addEventListener("contextmenu", (e) => {
@@ -120,6 +121,7 @@ class Game {
   onUpdate(deltaTime) {
     // TODO - Here we can add game logic, like moving game objects, detecting collisions, you name it. Examples of functions can be found in sceneFunctions
 
+    this.arm.rotate('y', deltaTime * 0.5);
     // example: Rotate a single object we defined in our start method
     // this.cube.rotate('x', deltaTime * 0.5);
 
