@@ -404,10 +404,12 @@ function drawScene(gl, deltaTime, state) {
         if (object.material.alpha < 1.0) {
           gl.depthMask(false);
           gl.enable(gl.BLEND);
-          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+          gl.blendFunc(gl.ONE_MINUS_CONSTANT_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         } else {
           gl.depthMask(true);
           gl.disable(gl.BLEND);
+          gl.enable(gl.DEPTH_TEST);
+          gl.depthFunc(gl.LEQUAL);
         }
 
         // Draw the object
