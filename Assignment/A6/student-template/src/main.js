@@ -130,8 +130,18 @@ async function main() {
                 normal = normalize(TBN * normVector);
             }
 
-            // calculate ambient
-            vec3 ambient = ambientVal * mainLight.colour * mainLight.strength;
+            float dist = length(mainLight.position - oFragPosition);
+            float attenuation = 1.0 / (1.0 + dist * dist);
+
+            //get kd first and then check if we have the texture
+            vec3 Kd = diffuseVal;
+            if (samplerExists == 1) {
+              vec3 texColor = texture(uTexture, oUV).rgb;
+              Kd = mix(Kd, texColor, 0.7);
+            }
+
+            // calculate ambient - use kd for ambient as well 
+            vec3 ambient = ambientVal * mainLight.colour * 3.0 * Kd;
 
             //normalize variables
             vec3 L = normalize(mainLight.position - oFragPosition);
@@ -140,17 +150,11 @@ async function main() {
 
             // calculate diffuse
             float NdotL = max(dot(normal, L), 0.0);
-            vec3 Kd = diffuseVal;
-            if (samplerExists == 1) {
-              vec3 texColor = texture(uTexture, oUV).rgb;
-              Kd = mix(Kd, texColor, 0.7);
-              ambient = ambientVal * mainLight.colour * mainLight.strength * texColor;
-            }
-            vec3 diffuse = (Kd * mainLight.colour * mainLight.strength) * NdotL;
+            vec3 diffuse = (Kd * mainLight.colour * mainLight.strength * attenuation) * NdotL;
 
             //calculate specular
-            float powNdotH = pow(max(dot(normal,H), 0.0), nVal);
-            vec3 specular = specularVal * mainLight.colour * powNdotH;
+            float powNdotH = pow(max(dot(normal, H), 0.0), nVal);
+            vec3 specular = specularVal * mainLight.colour * mainLight.strength * attenuation * powNdotH;
 
             fragColor = vec4(ambient + diffuse + specular, uAlpha);
         }
