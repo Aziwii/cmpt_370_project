@@ -343,7 +343,7 @@ function getTextures(gl, imgPath) {
 
 function parseOBJFileToJSON(objFileURL) {
   return new Promise((resolve, reject) => {
-    fetch("/assets/" + objFileURL)
+    fetch("./assets/" + objFileURL)
       .then((data) => {
         return data.text();
       })
