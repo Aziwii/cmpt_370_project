@@ -34,10 +34,21 @@
     <!-- UI Overlay MUST be outside the canvas tag -->
     <div id="ui-overlay"
         style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; color: white; font-family: sans-serif; z-index: 5;">
-        <!-- HUD (Score) -->
+        <!-- HUD (Score + Lower-Center Torch Bar) -->
         <div id="hud" style="padding: 20px; font-size: 24px; display: none;">
             <div>Score: <span id="scoreText">0</span></div>
+            <div>Coins: <span id="coinText">0</span></div>
             <div>High Score: <span id="highScoreText">0</span></div>
+            <div style="font-size: 16px; opacity: 0.8; margin-top: 6px;">View Change (R)</div>
+
+            <!-- Lower-Center Torch & Multiplier HUD -->
+            <div style="position: fixed; bottom: 25px; left: 50%; transform: translateX(-50%); text-align: center;">
+                <div id="multiplierText" style="font-size: 20px; font-weight: bold; margin-bottom: 6px; color: #cccccc;">1x</div>
+                <div style="font-size: 18px;">Torch: <span id="torchText">100%</span></div>
+                <div style="width: 280px; height: 14px; background: #333; border: 1px solid #888; margin: 6px auto 0 auto; border-radius: 6px; overflow: hidden;">
+                    <div id="torchBar" style="width: 100%; height: 100%; background: #ffcc33; transition: width 0.05s linear;"></div>
+                </div>
+            </div>
         </div>
 
         <!-- Start / Game Over Menu -->

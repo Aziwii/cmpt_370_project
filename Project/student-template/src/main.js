@@ -54,36 +54,111 @@ async function main() {
    */
   const vertShaderSample =
     `#version 300 es
-        in vec3 aPosition;
-        in vec3 aNormal;
+    in vec3 aPosition;
+    in vec3 aNormal;
+    in vec2 aUV;
 
-        uniform mat4 uProjectionMatrix;
-        uniform mat4 uViewMatrix;
-        uniform mat4 uModelMatrix;
+    uniform mat4 uProjectionMatrix;
+    uniform mat4 uViewMatrix;
+    uniform mat4 uModelMatrix;
+    uniform mat4 normalMatrix; //the inverse transpose of the modelMatrix to keep normals accurate with scaling
 
-        out vec3 oNormal;
+    out vec3 oNormal;
+    out vec3 oFragPos;
+    out vec2 oUV;
 
-        void main() {
-            // Simply use this normal so no error is thrown
-            oNormal = aNormal;
+    void main() {
+        //compute fragment pos in world space for point to light distance and view direction
+        vec4 worldPos = uModelMatrix * vec4(aPosition, 1.0);
+        oFragPos = worldPos.xyz;
 
-            // Postion of the fragment in world space
-            gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition, 1.0);
-        }
-        `;
+        //transform normal into world space
+        oNormal = mat3(normalMatrix) * aNormal;
+
+        //pass uv coordinates through for texture
+        oUV = aUV;
+
+        //final vertex position
+        gl_Position = uProjectionMatrix * uViewMatrix * worldPos;
+    }
+    `;
 
   const fragShaderSample =
     `#version 300 es
-        #define MAX_LIGHTS 20
-        precision highp float;
+    #define MAX_LIGHTS 20
+    precision highp float;
 
-        uniform vec3 diffuseVal;
+    struct PointLight {
+        vec3 position;
+        vec3 colour;
+        float strength; 
+        float linear; //distance fall off
+        float quadratic; //quadratic distance fall off 
+    };
 
-        out vec4 fragColor;
-        void main() {
-            fragColor = vec4(diffuseVal, 1.0);
+    in vec3 oNormal;
+    in vec3 oFragPos;
+    in vec2 oUV;
+
+    uniform PointLight pointLights[MAX_LIGHTS];
+    uniform int numLights;
+    uniform vec3 uCameraPosition;
+
+    uniform vec3 diffuseVal;
+    uniform vec3 ambientVal;
+    uniform vec3 specularVal;
+    uniform float nVal;
+
+    uniform sampler2D uTexture;
+    uniform int samplerExists; //1 if the obj has diff texture, else 0
+
+    out vec4 fragColor;
+
+    void main() {
+        //renormalize interpolated normal and find direction from fragment to cam
+        vec3 normal = normalize(oNormal);
+        if (!gl_FrontFacing) {
+            normal = -normal;
         }
-        `;
+        vec3 viewDir = normalize(uCameraPosition - oFragPos);
+
+        // start with material diffuse, multiply by texture color if a texture is bound
+        vec3 baseColor = diffuseVal;
+        if (samplerExists == 1) {
+            baseColor *= texture(uTexture, oUV).rgb;
+        }
+
+        // ambient
+        vec3 totalLight = ambientVal * baseColor;
+
+        // point lights blinnphong
+        for (int i = 0; i < MAX_LIGHTS; i++) {
+            if (i >= numLights) break;
+
+            //vector and distance from fragment to light source
+            vec3 lightVec = pointLights[i].position - oFragPos;
+            float dist = length(lightVec);
+            vec3 lightDir = normalize(lightVec);
+
+            //attenuation so lights create pools
+            float attenuation = pointLights[i].strength /
+                (1.0 + pointLights[i].linear * dist + pointLights[i].quadratic * (dist * dist));
+
+            // diffuse
+            float diff = max(dot(normal, lightDir), 0.0);
+            vec3 diffuse = diff * baseColor * pointLights[i].colour;
+
+            // specular
+            vec3 halfDir = normalize(lightDir + viewDir);
+            float spec = pow(max(dot(normal, halfDir), 0.0), max(nVal, 1.0));
+            vec3 specular = spec * specularVal * pointLights[i].colour;
+
+            totalLight += (diffuse + specular) * attenuation;
+        }
+
+        fragColor = vec4(totalLight, 1.0);
+    }
+    `;
 
   /**
    * Initialize state with new values (some of these you can replace/change)

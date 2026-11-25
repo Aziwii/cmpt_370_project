@@ -314,7 +314,7 @@ function loadJSONFile(cb, filePath) {
 }
 
 function getTextures(gl, imgPath) {
-  let fullpath = "/assets/" + imgPath;
+  let fullpath = "./assets/" + imgPath;
   if (imgPath) {
     var texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);

@@ -7,7 +7,15 @@ class Game {
     this.speed = 10;
 
     this.score = 0;
+    this.coinsCollected = 0;
+    this.coinValue = 10;
     this.highscore = Number(localStorage.getItem("highscore")) || 0;
+
+    this.maxTorchTime = 10.0;
+    this.torchTime = this.maxTorchTime;
+    this.maxTorchStrength = 10;
+    this.coinTorchBonus = 3.0;
+
     this.gameState = "MENU"; //either MENU PLAYING or GAMEOVER
 
     this.firstPerson = false;
@@ -74,26 +82,94 @@ class Game {
       getObject(this.state, "obstacle4")
     ];
 
-    // Give the player a sphere collider and define what happens when it hits something
-    this.createSphereCollider(this.player, 0.45, (otherObject) => {
-      if (otherObject.tag === "obstacle") {
-        this.gameOver();
-      }
-      // Later, you can add: else if (otherObject.tag === "coin") { ... }
-    });
+    //use the scene light as the player torch
+    this.playerLight = this.state.pointLights[0];
+    this.playerLight.colour = [1.0, 0.9, 0.7];
+    this.playerLight.strength = this.maxTorchStrength;
+    this.playerLight.linear = 0.25;
+    this.playerLight.quadratic = 0.15;
 
-    // Give each obstacle a sphere collider too
+    //add the redpoint light to each obstacle
     this.obstacles.forEach((obs) => {
       obs.tag = "obstacle";
-      this.createSphereCollider(obs, 0.55);
+      this.createSphereCollider(obs, 0.45);
+      obs.material.ambient = [0.0, 0.0, 0.0];
     });
 
-  
+    // Track, walls, and player go pitch black when torch dies
+    ["track", "left wall", "left wall-copy", "player"].forEach((name) => {
+      const obj = getObject(this.state, name);
+      if (obj) obj.material.ambient = [0.0, 0.0, 0.0];
+    });
+
+    // create 3 spinning yellow coins with yellow point lights
+    this.coins = [];
+    const coinStartZ = [-15, -25, -35];
+    for (let i = 0; i < 3; i++) {
+      const coin = addCube({
+        name: `coin${i}`,
+        type: "cube",
+        material: {
+          diffuse: [1.0, 0.85, 0.1],
+          ambient: [0.35, 0.35, 0.35], // Soft golden glow instead of blinding bright
+          specular: [1.0, 1.0, 1.0],
+          n: 32
+        },
+        position: [Math.floor(Math.random() * 3) - 1, 0.5, coinStartZ[i]],
+        scale: [0.6, 0.6, 0.6]
+      }, this.state);
+
+      coin.tag = "coin";
+      this.createSphereCollider(coin, 0.25);
+
+      const yellowLight = {
+        name: `coin-light-${i}`,
+        colour: [1.0, 0.85, 0.1],
+        position: [coin.model.position[0], 1.0, coin.model.position[2]],
+        strength: 2.0,     // Much softer (down from 10)
+        linear: 0.5,       // Tighter radius
+        quadratic: 1.5     // Fast falloff so it doesn't light the whole tunnel
+      };
+      this.state.pointLights.push(yellowLight);
+      coin.light = yellowLight;
+
+      this.coins.push(coin);
+    }
+
+    // update numLights so the shader loops over the new lights
+    this.state.numLights = this.state.pointLights.length;
+
+    // give the player a sphere collider and define what happens when it hits something
+    this.createSphereCollider(this.player, 0.3, (otherObject) => {
+      if (otherObject.tag === "obstacle") {
+        this.gameOver();
+      } else if (otherObject.tag === "coin") {
+        this.coinsCollected += 1;
+        this.score += this.coinValue;
+        this.coinText.textContent = this.coinsCollected;
+
+        // Add time back to the torch (capped at maxTorchTime)
+        this.torchTime = Math.min(this.maxTorchTime, this.torchTime + this.coinTorchBonus);
+
+        // Respawn coin down the track in a random lane
+        otherObject.model.position[2] -= 40.0;
+        otherObject.model.position[0] = Math.floor(Math.random() * 3) - 1;
+        otherObject.light.position[2] = otherObject.model.position[2];
+      }
+    });
+
+    // Grab UI elements (add torchText & torchBar)
+    this.torchText = document.getElementById("torchText");
+      this.torchBar = document.getElementById("torchBar");
+      this.multiplierText = document.getElementById("multiplierText");
+
+
     // Grab UI elements
     this.hud = document.getElementById("hud");
     this.menu = document.getElementById("menu");
     this.menuTitle = document.getElementById("menuTitle");
     this.scoreText = document.getElementById("scoreText");
+    this.coinText = document.getElementById("coinText");
     this.highScoreText = document.getElementById("highScoreText");
     this.finalScoreText = document.getElementById("finalScoreText");
 
@@ -116,7 +192,7 @@ class Game {
 
 
 
-    
+
     // // example - create sphere colliders on our two objects as an example, we give 2 objects colliders otherwise
     // // no collision can happen
     // this.createSphereCollider(this.cube, 0.5, (otherObject) => {
@@ -182,37 +258,63 @@ class Game {
   }
 
   startGame() {
-    // Reset player and speed
     this.currentLane = 0;
     this.speed = 10;
     this.score = 0;
+    this.coinsCollected = 0;
+    this.coinText.textContent = "0";
     this.player.model.position[0] = 0;
 
-    // Reset obstacles back to their starting Z positions
-    const startZ = [-10, -20, -30, -40];
+    this.graceTimer = 2.0;
+
+    //reset labels
+    if (this.multiplierText) {
+      this.multiplierText.textContent = "1x";
+      this.multiplierText.style.color = "#cccccc";
+    }
+
+    // reset torch light
+    this.torchTime = this.maxTorchTime;
+    this.playerLight.strength = this.maxTorchStrength;
+    this.playerLight.colour = [1.0, 0.9, 0.7];
+
+    // reset obstacles back to their starting Z positions
+    const startZ = [-20, -30, -40, -50];
     this.obstacles.forEach((obs, i) => {
       obs.model.position[2] = startZ[i];
       obs.model.position[0] = Math.floor(Math.random() * 3) - 1;
     });
 
+    // reset coins back to their starting Z positions
+    const coinStartZ = [-15, -25, -35];
+    this.coins.forEach((coin, i) => {
+      coin.model.position[2] = coinStartZ[i];
+      coin.model.position[0] = Math.floor(Math.random() * 3) - 1;
+      coin.light.position = [coin.model.position[0], 1.0, coin.model.position[2]];
+    });
+
     this.gameState = "PLAYING";
     this.menu.style.display = "none";
     this.hud.style.display = "block";
+
+    if (document.activeElement) document.activeElement.blur(); //so we dont reclick ui with spacebar
   }
 
   gameOver() {
     this.gameState = "GAMEOVER";
+    const distanceScore = Math.floor(this.score);
+    // const coinBonus = this.coinsCollected * this.coinValue;
     const finalScore = Math.floor(this.score);
 
-    if (finalScore > this.highScore) {
-      this.highScore = finalScore;
-      localStorage.setItem("highScore", this.highScore);
-      this.highScoreText.textContent = this.highScore;
+    if (finalScore > this.highscore) {
+      this.highscore = finalScore;
+      localStorage.setItem("highscore", this.highscore);
+      this.highScoreText.textContent = this.highscore;
     }
 
     this.menuTitle.textContent = "Game Over!";
-    this.finalScoreText.textContent = `Score: ${finalScore} | High Score: ${Math.floor(this.highScore)}`;
-    document.getElementById("startBtn").textContent = "Play Again";
+    this.finalScoreText.textContent =
+      `Score: ${finalScore} | Coins Collected: ${this.coinsCollected} | High Score: ${Math.floor(this.highscore)}`;
     this.menu.style.display = "block";
   }
 
@@ -220,7 +322,7 @@ class Game {
     this.gameState = "MENU";
     this.hud.style.display = "none";
     this.menuTitle.textContent = "Temple Run";
-    this.finalScoreText.textContent = `High Score: ${Math.floor(this.highScore)}`;
+    this.finalScoreText.textContent = `High Score: ${Math.floor(this.highscore)}`;
     document.getElementById("startBtn").textContent = "Start Game";
     this.menu.style.display = "block";
   }
@@ -249,32 +351,82 @@ class Game {
     if (this.gameState !== "PLAYING" || deltaTime > 0.1) return;
 
     this.score += this.speed * deltaTime;
-    this.scoreText.textContent = Math.floor(this.score);
 
     // increase speed
-    if (this.speed < 30) {
-    this.speed += 0.3 * deltaTime;
+    if (this.speed < 40) {
+      this.speed += 0.3 * deltaTime;
     }
-    
-    // Move obstacles and check collisions
-    for (const obs of this.obstacles) {
+
+    this.obstacles.forEach((obs) => {
       const obsPos = obs.model.position;
       obsPos[2] += this.speed * deltaTime;
-
-      if (this.checkCollision(obs)) {
-        this.gameOver();
-        return;
-      }
 
       if (obsPos[2] > 4.0) {
         obsPos[2] -= 40.0;
         obsPos[0] = Math.floor(Math.random() * 3) - 1;
       }
-    }
+    });
 
-    //player movement
+    // move, spin, and update coin lights
+    this.coins.forEach((coin) => {
+      const cPos = coin.model.position;
+      cPos[2] += this.speed * deltaTime;
+      coin.rotate('y', deltaTime * 3.0);
+
+      if (cPos[2] > 4.0) {
+        cPos[2] -= 40.0;
+        cPos[0] = Math.floor(Math.random() * 3) - 1;
+      }
+
+      coin.light.position = [cPos[0], 1.0, cPos[2]];
+    });
+
+    // follow player with torch
     const playerPos = this.player.model.position;
     playerPos[0] += (this.currentLane - playerPos[0]) * 15.0 * deltaTime;
+    this.playerLight.position = [playerPos[0], 2.0, playerPos[2]];
+
+    // wait for graceTimer before draining the torch
+    if (this.graceTimer > 0) {
+      this.graceTimer -= deltaTime;
+    } else {
+      this.torchTime = Math.max(0, this.torchTime - deltaTime);
+    }
+
+    const torchRatio = this.torchTime / this.maxTorchTime;
+    this.playerLight.strength = this.maxTorchStrength * torchRatio;
+
+    // calculate score multiplier
+    let multiplier = 1;
+    if (this.torchTime === 0) {
+      multiplier = 5;
+    } else if (this.torchTime >= 8.0 && this.graceTimer <= 0) {
+      multiplier = 2;
+    }
+
+    this.score += this.speed * deltaTime * multiplier;
+    this.scoreText.textContent = Math.floor(this.score);
+
+    // ppdate the torch bar & multiplier text
+    if (this.torchText && this.torchBar) {
+      const pct = Math.round(torchRatio * 100);
+      this.torchText.textContent = `${pct}%`;
+      this.torchBar.style.width = `${pct}%`;
+      this.torchBar.style.background = pct < 30 ? "#ff4422" : "#ffcc33";
+    }
+
+    if (this.multiplierText) {
+      if (multiplier === 5) {
+        this.multiplierText.textContent = "5x DARKNESS BONUS!";
+        this.multiplierText.style.color = "#ff5555";
+      } else if (multiplier === 2) {
+        this.multiplierText.textContent = "2x TORCH STREAK!";
+        this.multiplierText.style.color = "#ffcc33";
+      } else {
+        this.multiplierText.textContent = "1x";
+        this.multiplierText.style.color = "#cccccc";
+      }
+    }
 
     this.checkCollision(this.player);
 
