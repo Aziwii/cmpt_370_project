@@ -9,6 +9,8 @@ class Game {
     this.score = 0;
     this.highscore = Number(localStorage.getItem("highscore")) || 0;
     this.gameState = "MENU"; //either MENU PLAYING or GAMEOVER
+
+    this.firstPerson = false;
   }
 
   // example - we can add our own custom method to our game and call it using 'this.customMethod()'
@@ -107,6 +109,8 @@ class Game {
         this.currentLane--;
       } else if ((e.key === "d" || e.key === "ArrowRight") && this.currentLane < 1) {
         this.currentLane++;
+      } else if (e.key === "r") {
+        this.firstPerson = !this.firstPerson;
       }
     });
 
@@ -221,6 +225,24 @@ class Game {
     this.menu.style.display = "block";
   }
 
+  updateCamera() {
+    const playerPos = this.player.model.position;
+    const camera = this.state.camera;
+
+    //change to first person pov
+    if (this.firstPerson) {
+      camera.position[0] = playerPos[0];
+      camera.position[1] = playerPos[1] + 1.0;
+      camera.position[2] = playerPos[2] - 0.5;
+
+    }
+    // back to 3rd person pov
+    else {
+      camera.position = [0, 3.5, 4.5];
+      camera.pitch = -13.5;
+    }
+  }
+
   // Runs once every frame non stop after the scene loads
   onUpdate(deltaTime) {
     // TODO - Here we can add game logic, like moving game objects, detecting collisions, you name it. Examples of functions can be found in sceneFunctions
@@ -255,6 +277,9 @@ class Game {
     playerPos[0] += (this.currentLane - playerPos[0]) * 15.0 * deltaTime;
 
     this.checkCollision(this.player);
+
+    //update camera position
+    this.updateCamera();
 
     // example: Rotate all objects in the scene marked with a flag
     // this.state.objects.forEach((object) => {
