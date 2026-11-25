@@ -350,8 +350,6 @@ class Game {
     // TODO - Here we can add game logic, like moving game objects, detecting collisions, you name it. Examples of functions can be found in sceneFunctions
     if (this.gameState !== "PLAYING" || deltaTime > 0.1) return;
 
-    this.score += this.speed * deltaTime;
-
     // increase speed
     if (this.speed < 40) {
       this.speed += 0.3 * deltaTime;
