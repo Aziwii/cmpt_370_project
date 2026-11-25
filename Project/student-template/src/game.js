@@ -5,6 +5,10 @@ class Game {
     this.collidableObjects = [];
     this.currentLane = 0;
     this.speed = 10;
+
+    this.score = 0;
+    this.highscore = Number(localStorage.getItem("highscore")) || 0;
+    this.gameState = "MENU"; //either MENU PLAYING or GAMEOVER
   }
 
   // example - we can add our own custom method to our game and call it using 'this.customMethod()'
@@ -13,37 +17,53 @@ class Game {
   // }
 
   // example - create a collider on our object with various fields we might need (you will likely need to add/remove/edit how this works)
-  // createSphereCollider(object, radius, onCollide = null) {
-  //   object.collider = {
-  //     type: "SPHERE",
-  //     radius: radius,
-  //     onCollide: onCollide ? onCollide : (otherObject) => {
-  //       console.log(`Collided with ${otherObject.name}`);
-  //     }
-  //   };
-  //   this.collidableObjects.push(object);
-  // }
+  createSphereCollider(object, radius, onCollide = null) {
+    object.collider = {
+      type: "SPHERE",
+      radius: radius,
+      onCollide: onCollide ? onCollide : (otherObject) => {
+        console.log(`Collided with ${otherObject.name}`);
+      }
+    };
+    this.collidableObjects.push(object);
+  }
+
+  // Helper matching drawScene() in main.js to get true world-space position
+  getWorldCenter(object) {
+    let center = vec4.fromValues(
+      object.centroid[0],
+      object.centroid[1],
+      object.centroid[2],
+      1.0
+    );
+    vec4.transformMat4(center, center, object.modelMatrix);
+    return vec3.fromValues(center[0], center[1], center[2]);
+  }
 
   // example - function to check if an object is colliding with collidable objects
-  // checkCollision(object) {
-  //   // loop over all the other collidable objects 
-  //   this.collidableObjects.forEach(otherObject => {
-  //     // probably don't need to collide with ourselves
-  //     if (object.name === otherObject.name) {
-  //       return;
-  //     }
-  //     // do a check to see if we have collided, if we have we can call object.onCollide(otherObject) which will
-  //     // call the onCollide we define for that specific object. This way we can handle collisions identically for all
-  //     // objects that can collide but they can do different things (ie. player colliding vs projectile colliding)
-  //     // use the modeling transformation for object and otherObject to transform position into current location
-  //     // ie: 
-  //     // if (collide){ object.collider.onCollide(otherObject) } // fires what we defined our object should do when it collides
-  //   });
-  // }
+  // check one object against all collidableObjects
+  checkCollision(object) {
+    if (!object.collider || !object.modelMatrix) return;
+
+    const objPos = this.getWorldCenter(object);
+
+    this.collidableObjects.forEach(otherObject => {
+      if (object.name === otherObject.name || !otherObject.modelMatrix) {
+        return;
+      }
+
+      const otherPos = this.getWorldCenter(otherObject);
+      const distance = vec3.distance(objPos, otherPos);
+
+      if (distance < object.collider.radius + otherObject.collider.radius) {
+        // Trigger the callback defined on the object (and/or the otherObject)
+        object.collider.onCollide(otherObject);
+      }
+    });
+  }
 
   // runs once on startup after the scene loads the objects
   async onStart() {
-    //set an objects
     this.player = getObject(this.state, "player");
     this.obstacles = [
       getObject(this.state, "obstacle1"),
@@ -52,12 +72,37 @@ class Game {
       getObject(this.state, "obstacle4")
     ];
 
-
-    this.obstacles.forEach((obs) => {
-      obs.lane = 1;
+    // Give the player a sphere collider and define what happens when it hits something
+    this.createSphereCollider(this.player, 0.45, (otherObject) => {
+      if (otherObject.tag === "obstacle") {
+        this.gameOver();
+      }
+      // Later, you can add: else if (otherObject.tag === "coin") { ... }
     });
 
+    // Give each obstacle a sphere collider too
+    this.obstacles.forEach((obs) => {
+      obs.tag = "obstacle";
+      this.createSphereCollider(obs, 0.55);
+    });
+
+  
+    // Grab UI elements
+    this.hud = document.getElementById("hud");
+    this.menu = document.getElementById("menu");
+    this.menuTitle = document.getElementById("menuTitle");
+    this.scoreText = document.getElementById("scoreText");
+    this.highScoreText = document.getElementById("highScoreText");
+    this.finalScoreText = document.getElementById("finalScoreText");
+
+    this.highScoreText.textContent = Math.floor(this.highScore);
+
+    document.getElementById("startBtn").addEventListener("click", () => this.startGame());
+    document.getElementById("exitBtn").addEventListener("click", () => this.exitToMenu());
+
     document.addEventListener("keydown", (e) => {
+      if (this.gameState !== "PLAYING") return;
+
       if ((e.key === "a" || e.key === "ArrowLeft") && this.currentLane > -1) {
         this.currentLane--;
       } else if ((e.key === "d" || e.key === "ArrowRight") && this.currentLane < 1) {
@@ -132,29 +177,84 @@ class Game {
     //   }
   }
 
+  startGame() {
+    // Reset player and speed
+    this.currentLane = 0;
+    this.speed = 10;
+    this.score = 0;
+    this.player.model.position[0] = 0;
+
+    // Reset obstacles back to their starting Z positions
+    const startZ = [-10, -20, -30, -40];
+    this.obstacles.forEach((obs, i) => {
+      obs.model.position[2] = startZ[i];
+      obs.model.position[0] = Math.floor(Math.random() * 3) - 1;
+    });
+
+    this.gameState = "PLAYING";
+    this.menu.style.display = "none";
+    this.hud.style.display = "block";
+  }
+
+  gameOver() {
+    this.gameState = "GAMEOVER";
+    const finalScore = Math.floor(this.score);
+
+    if (finalScore > this.highScore) {
+      this.highScore = finalScore;
+      localStorage.setItem("highScore", this.highScore);
+      this.highScoreText.textContent = this.highScore;
+    }
+
+    this.menuTitle.textContent = "Game Over!";
+    this.finalScoreText.textContent = `Score: ${finalScore} | High Score: ${Math.floor(this.highScore)}`;
+    document.getElementById("startBtn").textContent = "Play Again";
+    this.menu.style.display = "block";
+  }
+
+  exitToMenu() {
+    this.gameState = "MENU";
+    this.hud.style.display = "none";
+    this.menuTitle.textContent = "Temple Run";
+    this.finalScoreText.textContent = `High Score: ${Math.floor(this.highScore)}`;
+    document.getElementById("startBtn").textContent = "Start Game";
+    this.menu.style.display = "block";
+  }
+
   // Runs once every frame non stop after the scene loads
   onUpdate(deltaTime) {
     // TODO - Here we can add game logic, like moving game objects, detecting collisions, you name it. Examples of functions can be found in sceneFunctions
-    
+    if (this.gameState !== "PLAYING" || deltaTime > 0.1) return;
+
+    this.score += this.speed * deltaTime;
+    this.scoreText.textContent = Math.floor(this.score);
+
     // increase speed
     if (this.speed < 30) {
     this.speed += 0.3 * deltaTime;
     }
     
-    // loops for obstacles
-    this.obstacles.forEach((obs) => {
+    // Move obstacles and check collisions
+    for (const obs of this.obstacles) {
       const obsPos = obs.model.position;
       obsPos[2] += this.speed * deltaTime;
+
+      if (this.checkCollision(obs)) {
+        this.gameOver();
+        return;
+      }
 
       if (obsPos[2] > 4.0) {
         obsPos[2] -= 40.0;
         obsPos[0] = Math.floor(Math.random() * 3) - 1;
       }
-    });
+    }
 
     //player movement
     const playerPos = this.player.model.position;
     playerPos[0] += (this.currentLane - playerPos[0]) * 15.0 * deltaTime;
+
+    this.checkCollision(this.player);
 
     // example: Rotate all objects in the scene marked with a flag
     // this.state.objects.forEach((object) => {
